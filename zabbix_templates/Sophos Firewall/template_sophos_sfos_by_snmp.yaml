@@ -1,0 +1,2562 @@
+zabbix_export:
+  version: '7.4'
+  template_groups:
+  - uuid: 36bff6c29af64692839d077febfc7079
+    name: Templates/Network devices
+  templates:
+  - uuid: c89b7991276d43c799fc06693ef19bd2
+    template: Sophos SFOS by SNMP
+    name: Sophos SFOS by SNMP
+    description: |-
+      Monitoramento de firewall Sophos SFOS (XG/XGS) por SNMP v2c.
+
+      Versões de referência
+        Zabbix ............ 7.4
+        SFOS-FIREWALL-MIB . v22 (OID base 1.3.6.1.4.1.2604.5)
+        SFOS .............. 18 ou superior; PoE e temperaturas exigem firmware com a MIB v22
+        Validated on ..... SFOS 22.0.2 MR-2 (Build 546), modelo XGS138
+
+      Vincula o template oficial "Network Generic Device by SNMP", que traz ICMP, uptime e descoberta de interfaces.
+
+      Os túneis IPsec são descobertos pelo nome real da conexão. O tráfego por túnel também: o Sophos nomeia a interface de túnel como xfrm<N>, onde N é o sfosIPSecVpnConnId, então a descoberta cruza as duas tabelas sozinha, sem de-para manual.
+
+      Autor: Pablo Pires de Godoi Silva
+    templates:
+    - name: Network Generic Device by SNMP
+    groups:
+    - name: Templates/Network devices
+    items:
+    - uuid: 547dd3f2ed6141e68f74a72252c46ad5
+      name: 'Sophos HA: Estado deste equipamento'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.4.4.0]
+      key: sophos.ha.state
+      valuemap:
+        name: Sophos HA state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: ha
+    - uuid: 96ea04454e9e42258860ceda421d565c
+      name: 'Sophos HA: Estado do par'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.4.5.0]
+      key: sophos.ha.peer.state
+      valuemap:
+        name: Sophos HA state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: ha
+    - uuid: 25d2afc3b5904c8392cc7411b5268384
+      name: 'Sophos HA: Status'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.4.1.0]
+      key: sophos.ha.status
+      delay: 5m
+      valuemap:
+        name: Sophos HA status
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: ha
+    - uuid: cb4270eba5a7455eb8d06414544aec2d
+      name: 'Sophos licença Central Orchestration: Data de expiração'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.9.2.0]
+      key: sophos.license.expiry[central]
+      delay: 6h
+      value_type: CHAR
+      tags:
+      - tag: component
+        value: license
+    - uuid: e028a1e99578470bbd35d02a83a0f1a0
+      name: 'Sophos licença Central Orchestration: Dias para expirar'
+      type: DEPENDENT
+      key: sophos.license.days[central]
+      value_type: FLOAT
+      units: d
+      description: Calculado a partir da data de expiração. -1 = data em formato não reconhecido ou sem licença.
+      preprocessing:
+      - type: JAVASCRIPT
+        parameters:
+        - |-
+          var s = String(value).trim();
+          var M = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+          var m, d = null;
+          if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) {
+              d = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+          } else if ((m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})/)) && M[m[1].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[1].toLowerCase()], +m[2]);
+          } else if ((m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3})[a-z]*[\s-]+(\d{4})/)) && M[m[2].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[2].toLowerCase()], +m[1]);
+          } else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) {
+              d = Date.UTC(+m[3], +m[2] - 1, +m[1]);
+          }
+          if (d === null) { return -1; }
+          return Math.floor((d - Date.now()) / 86400000);
+      master_item:
+        key: sophos.license.expiry[central]
+      tags:
+      - tag: component
+        value: license
+    - uuid: 8d235e077a484b9e9bf3c19bfdd0803e
+      name: 'Sophos licença Central Orchestration: Status'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.9.1.0]
+      key: sophos.license.status[central]
+      delay: 6h
+      valuemap:
+        name: Sophos subscription status
+      tags:
+      - tag: component
+        value: license
+      triggers:
+      - uuid: 1199554d6cf54546bf458ff2ab401816
+        expression: last(/Sophos SFOS by SNMP/sophos.license.status[central])=4 and {$SOPHOS.LICENSE.MONITOR:"central"}=1
+        name: 'Sophos: Licença Central Orchestration expirada'
+        priority: AVERAGE
+        description: Para ignorar esta licença no host, defina {$SOPHOS.LICENSE.MONITOR:"central"}=0.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: bb0bc7394b9540b1b427059e5c93d98f
+      name: 'Sophos licença Email Protection: Data de expiração'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.4.2.0]
+      key: sophos.license.expiry[mail]
+      delay: 6h
+      value_type: CHAR
+      tags:
+      - tag: component
+        value: license
+    - uuid: 89aeb572815c42d89bdb897ded032edb
+      name: 'Sophos licença Email Protection: Dias para expirar'
+      type: DEPENDENT
+      key: sophos.license.days[mail]
+      value_type: FLOAT
+      units: d
+      description: Calculado a partir da data de expiração. -1 = data em formato não reconhecido ou sem licença.
+      preprocessing:
+      - type: JAVASCRIPT
+        parameters:
+        - |-
+          var s = String(value).trim();
+          var M = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+          var m, d = null;
+          if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) {
+              d = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+          } else if ((m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})/)) && M[m[1].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[1].toLowerCase()], +m[2]);
+          } else if ((m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3})[a-z]*[\s-]+(\d{4})/)) && M[m[2].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[2].toLowerCase()], +m[1]);
+          } else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) {
+              d = Date.UTC(+m[3], +m[2] - 1, +m[1]);
+          }
+          if (d === null) { return -1; }
+          return Math.floor((d - Date.now()) / 86400000);
+      master_item:
+        key: sophos.license.expiry[mail]
+      tags:
+      - tag: component
+        value: license
+    - uuid: 29c78856eed841be83f2426a26bac14b
+      name: 'Sophos licença Email Protection: Status'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.4.1.0]
+      key: sophos.license.status[mail]
+      delay: 6h
+      valuemap:
+        name: Sophos subscription status
+      tags:
+      - tag: component
+        value: license
+      triggers:
+      - uuid: dc39ed40853848f3bed020c46ddb5a54
+        expression: last(/Sophos SFOS by SNMP/sophos.license.status[mail])=4 and {$SOPHOS.LICENSE.MONITOR:"mail"}=1
+        name: 'Sophos: Licença Email Protection expirada'
+        priority: AVERAGE
+        description: Para ignorar esta licença no host, defina {$SOPHOS.LICENSE.MONITOR:"mail"}=0.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: a59295d276b54ca997043cc29db0fa42
+      name: 'Sophos licença Enhanced Plus Support: Data de expiração'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.8.2.0]
+      key: sophos.license.expiry[supportplus]
+      delay: 6h
+      value_type: CHAR
+      tags:
+      - tag: component
+        value: license
+    - uuid: 8c14b99056954f9a8e255d4258ed9129
+      name: 'Sophos licença Enhanced Plus Support: Dias para expirar'
+      type: DEPENDENT
+      key: sophos.license.days[supportplus]
+      value_type: FLOAT
+      units: d
+      description: Calculado a partir da data de expiração. -1 = data em formato não reconhecido ou sem licença.
+      preprocessing:
+      - type: JAVASCRIPT
+        parameters:
+        - |-
+          var s = String(value).trim();
+          var M = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+          var m, d = null;
+          if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) {
+              d = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+          } else if ((m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})/)) && M[m[1].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[1].toLowerCase()], +m[2]);
+          } else if ((m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3})[a-z]*[\s-]+(\d{4})/)) && M[m[2].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[2].toLowerCase()], +m[1]);
+          } else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) {
+              d = Date.UTC(+m[3], +m[2] - 1, +m[1]);
+          }
+          if (d === null) { return -1; }
+          return Math.floor((d - Date.now()) / 86400000);
+      master_item:
+        key: sophos.license.expiry[supportplus]
+      tags:
+      - tag: component
+        value: license
+    - uuid: cb9af347a3584868834f89da0f986030
+      name: 'Sophos licença Enhanced Plus Support: Status'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.8.1.0]
+      key: sophos.license.status[supportplus]
+      delay: 6h
+      valuemap:
+        name: Sophos subscription status
+      tags:
+      - tag: component
+        value: license
+      triggers:
+      - uuid: f20c72e9945446b995732e363860e453
+        expression: last(/Sophos SFOS by SNMP/sophos.license.status[supportplus])=4 and {$SOPHOS.LICENSE.MONITOR:"supportplus"}=1
+        name: 'Sophos: Licença Enhanced Plus Support expirada'
+        priority: AVERAGE
+        description: Para ignorar esta licença no host, defina {$SOPHOS.LICENSE.MONITOR:"supportplus"}=0.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: df62259e36ff44918277e1cf4830009b
+      name: 'Sophos licença Enhanced Support: Data de expiração'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.7.2.0]
+      key: sophos.license.expiry[support]
+      delay: 6h
+      value_type: CHAR
+      tags:
+      - tag: component
+        value: license
+    - uuid: f5f242f86dad439a958519c79bc07f07
+      name: 'Sophos licença Enhanced Support: Dias para expirar'
+      type: DEPENDENT
+      key: sophos.license.days[support]
+      value_type: FLOAT
+      units: d
+      description: Calculado a partir da data de expiração. -1 = data em formato não reconhecido ou sem licença.
+      preprocessing:
+      - type: JAVASCRIPT
+        parameters:
+        - |-
+          var s = String(value).trim();
+          var M = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+          var m, d = null;
+          if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) {
+              d = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+          } else if ((m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})/)) && M[m[1].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[1].toLowerCase()], +m[2]);
+          } else if ((m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3})[a-z]*[\s-]+(\d{4})/)) && M[m[2].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[2].toLowerCase()], +m[1]);
+          } else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) {
+              d = Date.UTC(+m[3], +m[2] - 1, +m[1]);
+          }
+          if (d === null) { return -1; }
+          return Math.floor((d - Date.now()) / 86400000);
+      master_item:
+        key: sophos.license.expiry[support]
+      tags:
+      - tag: component
+        value: license
+    - uuid: 0f19eac4f8e34014abe5446f7ae53e12
+      name: 'Sophos licença Enhanced Support: Status'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.7.1.0]
+      key: sophos.license.status[support]
+      delay: 6h
+      valuemap:
+        name: Sophos subscription status
+      tags:
+      - tag: component
+        value: license
+      triggers:
+      - uuid: 199235135f9440798a2a4787d5dba7f7
+        expression: last(/Sophos SFOS by SNMP/sophos.license.status[support])=4 and {$SOPHOS.LICENSE.MONITOR:"support"}=1
+        name: 'Sophos: Licença Enhanced Support expirada'
+        priority: AVERAGE
+        description: Para ignorar esta licença no host, defina {$SOPHOS.LICENSE.MONITOR:"support"}=0.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: ed73a6f02f3e4fdba2020bdcf31e4a6b
+      name: 'Sophos licença Firewall base: Data de expiração'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.1.2.0]
+      key: sophos.license.expiry[base]
+      delay: 6h
+      value_type: CHAR
+      tags:
+      - tag: component
+        value: license
+    - uuid: 80eaa8d925ef4cce8b591e7dc1d67878
+      name: 'Sophos licença Firewall base: Dias para expirar'
+      type: DEPENDENT
+      key: sophos.license.days[base]
+      value_type: FLOAT
+      units: d
+      description: Calculado a partir da data de expiração. -1 = data em formato não reconhecido ou sem licença.
+      preprocessing:
+      - type: JAVASCRIPT
+        parameters:
+        - |-
+          var s = String(value).trim();
+          var M = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+          var m, d = null;
+          if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) {
+              d = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+          } else if ((m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})/)) && M[m[1].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[1].toLowerCase()], +m[2]);
+          } else if ((m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3})[a-z]*[\s-]+(\d{4})/)) && M[m[2].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[2].toLowerCase()], +m[1]);
+          } else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) {
+              d = Date.UTC(+m[3], +m[2] - 1, +m[1]);
+          }
+          if (d === null) { return -1; }
+          return Math.floor((d - Date.now()) / 86400000);
+      master_item:
+        key: sophos.license.expiry[base]
+      tags:
+      - tag: component
+        value: license
+    - uuid: 8c7d45f554de4605b6636067da9472ab
+      name: 'Sophos licença Firewall base: Status'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.1.1.0]
+      key: sophos.license.status[base]
+      delay: 6h
+      valuemap:
+        name: Sophos subscription status
+      tags:
+      - tag: component
+        value: license
+      triggers:
+      - uuid: f14f7c7be7624744bc9818811bf9631e
+        expression: last(/Sophos SFOS by SNMP/sophos.license.status[base])=4 and {$SOPHOS.LICENSE.MONITOR:"base"}=1
+        name: 'Sophos: Licença Firewall base expirada'
+        priority: AVERAGE
+        description: Para ignorar esta licença no host, defina {$SOPHOS.LICENSE.MONITOR:"base"}=0.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: 649b397d32664f038ac811d74acb19f1
+      name: 'Sophos licença Network Protection: Data de expiração'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.2.2.0]
+      key: sophos.license.expiry[network]
+      delay: 6h
+      value_type: CHAR
+      tags:
+      - tag: component
+        value: license
+    - uuid: 76177a48ddee4471a97ae16473abd196
+      name: 'Sophos licença Network Protection: Dias para expirar'
+      type: DEPENDENT
+      key: sophos.license.days[network]
+      value_type: FLOAT
+      units: d
+      description: Calculado a partir da data de expiração. -1 = data em formato não reconhecido ou sem licença.
+      preprocessing:
+      - type: JAVASCRIPT
+        parameters:
+        - |-
+          var s = String(value).trim();
+          var M = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+          var m, d = null;
+          if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) {
+              d = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+          } else if ((m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})/)) && M[m[1].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[1].toLowerCase()], +m[2]);
+          } else if ((m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3})[a-z]*[\s-]+(\d{4})/)) && M[m[2].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[2].toLowerCase()], +m[1]);
+          } else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) {
+              d = Date.UTC(+m[3], +m[2] - 1, +m[1]);
+          }
+          if (d === null) { return -1; }
+          return Math.floor((d - Date.now()) / 86400000);
+      master_item:
+        key: sophos.license.expiry[network]
+      tags:
+      - tag: component
+        value: license
+    - uuid: b9dfed52da4541d7ad89b25db8e4491b
+      name: 'Sophos licença Network Protection: Status'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.2.1.0]
+      key: sophos.license.status[network]
+      delay: 6h
+      valuemap:
+        name: Sophos subscription status
+      tags:
+      - tag: component
+        value: license
+      triggers:
+      - uuid: cefe630f3dd242eea19110a655d6d24c
+        expression: last(/Sophos SFOS by SNMP/sophos.license.status[network])=4 and {$SOPHOS.LICENSE.MONITOR:"network"}=1
+        name: 'Sophos: Licença Network Protection expirada'
+        priority: AVERAGE
+        description: Para ignorar esta licença no host, defina {$SOPHOS.LICENSE.MONITOR:"network"}=0.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: c0810fa250644f9c919604f286f47734
+      name: 'Sophos licença Web Protection: Data de expiração'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.3.2.0]
+      key: sophos.license.expiry[web]
+      delay: 6h
+      value_type: CHAR
+      tags:
+      - tag: component
+        value: license
+    - uuid: 00c727d5cb324000a3e7980961bf82a7
+      name: 'Sophos licença Web Protection: Dias para expirar'
+      type: DEPENDENT
+      key: sophos.license.days[web]
+      value_type: FLOAT
+      units: d
+      description: Calculado a partir da data de expiração. -1 = data em formato não reconhecido ou sem licença.
+      preprocessing:
+      - type: JAVASCRIPT
+        parameters:
+        - |-
+          var s = String(value).trim();
+          var M = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+          var m, d = null;
+          if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) {
+              d = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+          } else if ((m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})/)) && M[m[1].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[1].toLowerCase()], +m[2]);
+          } else if ((m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3})[a-z]*[\s-]+(\d{4})/)) && M[m[2].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[2].toLowerCase()], +m[1]);
+          } else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) {
+              d = Date.UTC(+m[3], +m[2] - 1, +m[1]);
+          }
+          if (d === null) { return -1; }
+          return Math.floor((d - Date.now()) / 86400000);
+      master_item:
+        key: sophos.license.expiry[web]
+      tags:
+      - tag: component
+        value: license
+    - uuid: 5b6209d654154bc2af37afde6a6fd2d2
+      name: 'Sophos licença Web Protection: Status'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.3.1.0]
+      key: sophos.license.status[web]
+      delay: 6h
+      valuemap:
+        name: Sophos subscription status
+      tags:
+      - tag: component
+        value: license
+      triggers:
+      - uuid: 7cdb0664ee754962b35002828c7238a9
+        expression: last(/Sophos SFOS by SNMP/sophos.license.status[web])=4 and {$SOPHOS.LICENSE.MONITOR:"web"}=1
+        name: 'Sophos: Licença Web Protection expirada'
+        priority: AVERAGE
+        description: Para ignorar esta licença no host, defina {$SOPHOS.LICENSE.MONITOR:"web"}=0.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: 3a2b78926ec54513baf89d939b97fa17
+      name: 'Sophos licença Web Server Protection: Data de expiração'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.5.2.0]
+      key: sophos.license.expiry[webserver]
+      delay: 6h
+      value_type: CHAR
+      tags:
+      - tag: component
+        value: license
+    - uuid: 11aab11d8832479baf0117df18c1c988
+      name: 'Sophos licença Web Server Protection: Dias para expirar'
+      type: DEPENDENT
+      key: sophos.license.days[webserver]
+      value_type: FLOAT
+      units: d
+      description: Calculado a partir da data de expiração. -1 = data em formato não reconhecido ou sem licença.
+      preprocessing:
+      - type: JAVASCRIPT
+        parameters:
+        - |-
+          var s = String(value).trim();
+          var M = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+          var m, d = null;
+          if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) {
+              d = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+          } else if ((m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})/)) && M[m[1].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[1].toLowerCase()], +m[2]);
+          } else if ((m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3})[a-z]*[\s-]+(\d{4})/)) && M[m[2].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[2].toLowerCase()], +m[1]);
+          } else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) {
+              d = Date.UTC(+m[3], +m[2] - 1, +m[1]);
+          }
+          if (d === null) { return -1; }
+          return Math.floor((d - Date.now()) / 86400000);
+      master_item:
+        key: sophos.license.expiry[webserver]
+      tags:
+      - tag: component
+        value: license
+    - uuid: f252ada7ea7549af924a7aca6965750f
+      name: 'Sophos licença Web Server Protection: Status'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.5.1.0]
+      key: sophos.license.status[webserver]
+      delay: 6h
+      valuemap:
+        name: Sophos subscription status
+      tags:
+      - tag: component
+        value: license
+      triggers:
+      - uuid: 47fe8e5838344d7b8186318f746839ce
+        expression: last(/Sophos SFOS by SNMP/sophos.license.status[webserver])=4 and {$SOPHOS.LICENSE.MONITOR:"webserver"}=1
+        name: 'Sophos: Licença Web Server Protection expirada'
+        priority: AVERAGE
+        description: Para ignorar esta licença no host, defina {$SOPHOS.LICENSE.MONITOR:"webserver"}=0.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: c997838b85b04352806afb3e4ea3d7b6
+      name: 'Sophos licença Zero-day / Sandstorm: Data de expiração'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.6.2.0]
+      key: sophos.license.expiry[sandstorm]
+      delay: 6h
+      value_type: CHAR
+      tags:
+      - tag: component
+        value: license
+    - uuid: 32990bdbb9d04d74995ca308eb5d490a
+      name: 'Sophos licença Zero-day / Sandstorm: Dias para expirar'
+      type: DEPENDENT
+      key: sophos.license.days[sandstorm]
+      value_type: FLOAT
+      units: d
+      description: Calculado a partir da data de expiração. -1 = data em formato não reconhecido ou sem licença.
+      preprocessing:
+      - type: JAVASCRIPT
+        parameters:
+        - |-
+          var s = String(value).trim();
+          var M = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+          var m, d = null;
+          if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) {
+              d = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+          } else if ((m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})/)) && M[m[1].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[1].toLowerCase()], +m[2]);
+          } else if ((m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3})[a-z]*[\s-]+(\d{4})/)) && M[m[2].toLowerCase()] !== undefined) {
+              d = Date.UTC(+m[3], M[m[2].toLowerCase()], +m[1]);
+          } else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) {
+              d = Date.UTC(+m[3], +m[2] - 1, +m[1]);
+          }
+          if (d === null) { return -1; }
+          return Math.floor((d - Date.now()) / 86400000);
+      master_item:
+        key: sophos.license.expiry[sandstorm]
+      tags:
+      - tag: component
+        value: license
+    - uuid: 4e7a5327228843258d6206b6dab0fbd5
+      name: 'Sophos licença Zero-day / Sandstorm: Status'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.5.6.1.0]
+      key: sophos.license.status[sandstorm]
+      delay: 6h
+      valuemap:
+        name: Sophos subscription status
+      tags:
+      - tag: component
+        value: license
+      triggers:
+      - uuid: 98d92d08827e4b26a6a4a83eaddd305f
+        expression: last(/Sophos SFOS by SNMP/sophos.license.status[sandstorm])=4 and {$SOPHOS.LICENSE.MONITOR:"sandstorm"}=1
+        name: 'Sophos: Licença Zero-day / Sandstorm expirada'
+        priority: AVERAGE
+        description: Para ignorar esta licença no host, defina {$SOPHOS.LICENSE.MONITOR:"sandstorm"}=0.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: 242f694b3ad14edba7d7380dde3ac776
+      name: 'Sophos serviço: Antispam'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.7.0]
+      key: sophos.service[as]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: f7c24dfe2f3247cf958bd161204f763e
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[as])=5 or last(/Sophos SFOS by SNMP/sophos.service[as])=6) and {$SOPHOS.SERVICE.MONITOR:"as"}=1
+        name: 'Sophos: Serviço Antispam parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"as"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: c988cb96d3de4423b32b5d3e028aced3
+      name: 'Sophos serviço: Antivírus'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.6.0]
+      key: sophos.service[av]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 4f9e49d6bb514b538b28435e7736440b
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[av])=5 or last(/Sophos SFOS by SNMP/sophos.service[av])=6) and {$SOPHOS.SERVICE.MONITOR:"av"}=1
+        name: 'Sophos: Serviço Antivírus parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"av"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 677a125bb37b4f1390cebff67342134d
+      name: 'Sophos serviço: Apache (WebAdmin)'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.11.0]
+      key: sophos.service[apache]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 1717925bba7e494f8d1d8d2e044707f4
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[apache])=5 or last(/Sophos SFOS by SNMP/sophos.service[apache])=6) and {$SOPHOS.SERVICE.MONITOR:"apache"}=1
+        name: 'Sophos: Serviço Apache (WebAdmin) parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"apache"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: f64e7f1b540d4d6c928935bcb0cfda37
+      name: 'Sophos serviço: Banco de dados'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.16.0]
+      key: sophos.service[database]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: eea9b52b07064a4aa78deafe6f2279f1
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[database])=5 or last(/Sophos SFOS by SNMP/sophos.service[database])=6) and {$SOPHOS.SERVICE.MONITOR:"database"}=1
+        name: 'Sophos: Serviço Banco de dados parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"database"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 9f93e5139d07422e930c1b7b05d52ecb
+      name: 'Sophos serviço: DNS'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.8.0]
+      key: sophos.service[dns]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 8ba31d31e7ae432393183001d81c310a
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[dns])=5 or last(/Sophos SFOS by SNMP/sophos.service[dns])=6) and {$SOPHOS.SERVICE.MONITOR:"dns"}=1
+        name: 'Sophos: Serviço DNS parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"dns"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 483342f74cba400aba4e56510b423d1d
+      name: 'Sophos serviço: FTP'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.4.0]
+      key: sophos.service[ftp]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 064d37afc02e4e9bb6b198b439374c8f
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[ftp])=5 or last(/Sophos SFOS by SNMP/sophos.service[ftp])=6) and {$SOPHOS.SERVICE.MONITOR:"ftp"}=1
+        name: 'Sophos: Serviço FTP parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"ftp"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: af6be61c0dd74a97a95804b327c46771
+      name: 'Sophos serviço: Garner (logs)'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.18.0]
+      key: sophos.service[garner]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: dbe67bc32fa44051ba8b4b6a365f3343
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[garner])=5 or last(/Sophos SFOS by SNMP/sophos.service[garner])=6) and {$SOPHOS.SERVICE.MONITOR:"garner"}=1
+        name: 'Sophos: Serviço Garner (logs) parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"garner"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 2196a9d6ab7842fabbbf09967201a897
+      name: 'Sophos serviço: Gateway (DGD)'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.21.0]
+      key: sophos.service[dgd]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 3f591cc1634a4228a463f13c10a74a16
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[dgd])=5 or last(/Sophos SFOS by SNMP/sophos.service[dgd])=6) and {$SOPHOS.SERVICE.MONITOR:"dgd"}=1
+        name: 'Sophos: Serviço Gateway (DGD) parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"dgd"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 7e04c74410c447b6839faa633aa11173
+      name: 'Sophos serviço: HA'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.9.0]
+      key: sophos.service[ha]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 80bf6a0d98cc4646a240c020a79834c7
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[ha])=5 or last(/Sophos SFOS by SNMP/sophos.service[ha])=6) and {$SOPHOS.SERVICE.MONITOR:"ha"}=1
+        name: 'Sophos: Serviço HA parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"ha"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 6801d457ec4846d4a3eb7b2f54eddb0d
+      name: 'Sophos serviço: IMAP4'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.2.0]
+      key: sophos.service[imap4]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 07c9dcb325554fd7a76a3dd58207f501
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[imap4])=5 or last(/Sophos SFOS by SNMP/sophos.service[imap4])=6) and {$SOPHOS.SERVICE.MONITOR:"imap4"}=1
+        name: 'Sophos: Serviço IMAP4 parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"imap4"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 7274b7a57e2b4c2da3a9d43404366da1
+      name: 'Sophos serviço: IPS'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.10.0]
+      key: sophos.service[ips]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 884b52d06dab49ac84e73e7ff17f9be2
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[ips])=5 or last(/Sophos SFOS by SNMP/sophos.service[ips])=6) and {$SOPHOS.SERVICE.MONITOR:"ips"}=1
+        name: 'Sophos: Serviço IPS parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"ips"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 3c45b96145a549e8bcc4ec24d83d698e
+      name: 'Sophos serviço: IPsec VPN'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.15.0]
+      key: sophos.service[ipsec]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: d82883e1020b4007b80e3e836154fa0e
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[ipsec])=5 or last(/Sophos SFOS by SNMP/sophos.service[ipsec])=6) and {$SOPHOS.SERVICE.MONITOR:"ipsec"}=1
+        name: 'Sophos: Serviço IPsec VPN parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"ipsec"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: cb1fa5bb69cc43d7a20d59e046e43d52
+      name: 'Sophos serviço: NTP'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.12.0]
+      key: sophos.service[ntp]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: f1f476691be7402f900d9e7ba36a9f29
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[ntp])=5 or last(/Sophos SFOS by SNMP/sophos.service[ntp])=6) and {$SOPHOS.SERVICE.MONITOR:"ntp"}=1
+        name: 'Sophos: Serviço NTP parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"ntp"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: f591e1cedb3c4fa581cb8f303c4c48c9
+      name: 'Sophos serviço: POP3'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.1.0]
+      key: sophos.service[pop3]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 05c7687c65264344a276f1cc696967bf
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[pop3])=5 or last(/Sophos SFOS by SNMP/sophos.service[pop3])=6) and {$SOPHOS.SERVICE.MONITOR:"pop3"}=1
+        name: 'Sophos: Serviço POP3 parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"pop3"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 8241031c037d4872b021462df0243849
+      name: 'Sophos serviço: Proxy HTTP'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.5.0]
+      key: sophos.service[http]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 25406f238c6d4170a79ed519ce1d4dcf
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[http])=5 or last(/Sophos SFOS by SNMP/sophos.service[http])=6) and {$SOPHOS.SERVICE.MONITOR:"http"}=1
+        name: 'Sophos: Serviço Proxy HTTP parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"http"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: ad20296bb6a946e4b92545b5dcc146eb
+      name: 'Sophos serviço: Rede'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.17.0]
+      key: sophos.service[network]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 9d3b7785b5354846a90e2e41a849ed4b
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[network])=5 or last(/Sophos SFOS by SNMP/sophos.service[network])=6) and {$SOPHOS.SERVICE.MONITOR:"network"}=1
+        name: 'Sophos: Serviço Rede parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"network"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: c64a6349540d43c5b20550893fc3011b
+      name: 'Sophos serviço: Roteamento dinâmico'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.19.0]
+      key: sophos.service[drouting]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 8aa44bb5d3a6476dba41b81bfcdc61f4
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[drouting])=5 or last(/Sophos SFOS by SNMP/sophos.service[drouting])=6) and {$SOPHOS.SERVICE.MONITOR:"drouting"}=1
+        name: 'Sophos: Serviço Roteamento dinâmico parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"drouting"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: bda47759599f423f909b71ba0f0a5a20
+      name: 'Sophos serviço: SMTP'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.3.0]
+      key: sophos.service[smtp]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 304e28d77898467ba23c3579a0a42506
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[smtp])=5 or last(/Sophos SFOS by SNMP/sophos.service[smtp])=6) and {$SOPHOS.SERVICE.MONITOR:"smtp"}=1
+        name: 'Sophos: Serviço SMTP parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"smtp"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 4fb4199a2a32430d82fa38e90b650fd8
+      name: 'Sophos serviço: SSH'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.20.0]
+      key: sophos.service[sshd]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 5d8cd05192804748a8dbe89ac89b4b59
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[sshd])=5 or last(/Sophos SFOS by SNMP/sophos.service[sshd])=6) and {$SOPHOS.SERVICE.MONITOR:"sshd"}=1
+        name: 'Sophos: Serviço SSH parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"sshd"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 6b1e79c260c54f5997b5a38c0ac65a39
+      name: 'Sophos serviço: SSL VPN'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.14.0]
+      key: sophos.service[sslvpn]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 05ea61643a1540feb8595325597fccb4
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[sslvpn])=5 or last(/Sophos SFOS by SNMP/sophos.service[sslvpn])=6) and {$SOPHOS.SERVICE.MONITOR:"sslvpn"}=1
+        name: 'Sophos: Serviço SSL VPN parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"sslvpn"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 3159a3b67b0f4f429f493f408d81dc43
+      name: 'Sophos serviço: Tomcat'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.3.13.0]
+      key: sophos.service[tomcat]
+      delay: 2m
+      valuemap:
+        name: Sophos service state
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 6h
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 69112515ce2047a3894d2c1a60f6cd27
+        expression: (last(/Sophos SFOS by SNMP/sophos.service[tomcat])=5 or last(/Sophos SFOS by SNMP/sophos.service[tomcat])=6) and {$SOPHOS.SERVICE.MONITOR:"tomcat"}=1
+        name: 'Sophos: Serviço Tomcat parado inesperadamente'
+        opdata: 'Estado: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        description: Estado "dead" (5) ou "frozen" (6). Serviços parados por configuração (stopped) não alarmam. Para ignorar este serviço no host, defina {$SOPHOS.SERVICE.MONITOR:"tomcat"}=0.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: e0a52e8a52c645cb884bd50d2c34ad0b
+      name: 'Sophos: Capacidade do disco'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.2.4.1.0]
+      key: sophos.disk.total
+      delay: 1h
+      units: B
+      preprocessing:
+      - type: MULTIPLIER
+        parameters:
+        - '1048576'
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 1d
+      tags:
+      - tag: component
+        value: storage
+    - uuid: c6fbeb7a4c7440cc99284038447e0e08
+      name: 'Sophos: Conexões IPsec configuradas'
+      type: DEPENDENT
+      key: sophos.ipsec.tunnels.count
+      value_type: UNSIGNED
+      description: |-
+        Quantidade de conexões IPsec que o firewall devolveu no último walk.
+        Serve de sentinela da coleta: enquanto este item recebe valor, a leitura da MIB de VPN está viva. Se o SNMP parar, os itens de status de cada túnel congelam no último valor e o painel continua verde — é essa falha silenciosa que a trigger de nodata deste item cobre.
+      preprocessing:
+      - type: JAVASCRIPT
+        parameters:
+        - |
+          // Conta quantas conexoes IPsec o firewall devolveu, contando as linhas da
+          // coluna sfosIPSecVpnConnName (.2) dentro do walk bruto.
+          // O item existe para ter uma sentinela da coleta: se o SNMP parar ou a MIB
+          // ficar indisponivel, este item para de receber valor e a trigger de nodata
+          // dispara. Nao tem "descartar valor repetido" de proposito.
+          var achados = value.match(/1\.3\.6\.1\.4\.1\.2604\.5\.1\.6\.1\.1\.1\.1\.2\./g);
+
+          return achados ? achados.length : 0;
+      master_item:
+        key: sophos.ipsec.walk
+      tags:
+      - tag: component
+        value: vpn
+      triggers:
+      - uuid: 1b338cfdf39040898a1a043fd146f260
+        expression: nodata(/Sophos SFOS by SNMP/sophos.ipsec.tunnels.count,{$SOPHOS.IPSEC.NODATA})=1
+        name: 'Sophos: coleta dos túneis IPsec parada'
+        priority: AVERAGE
+        description: |-
+          Há {$SOPHOS.IPSEC.NODATA} sem leitura da MIB de VPN IPsec.
+          Enquanto isso, o status de cada túnel fica parado no último valor coletado e não representa a realidade.
+          Verificar: SNMP respondendo no firewall, community/ACL, regra de firewall para a porta 161 e o item mestre sophos.ipsec.walk (estado 'Não suportado').
+        tags:
+        - tag: scope
+          value: availability
+        - tag: component
+          value: vpn
+      - uuid: c2c17db25c9947ff8ddf550dc175b8bb
+        expression: last(/Sophos SFOS by SNMP/sophos.ipsec.tunnels.count)=0
+        name: 'Sophos: nenhuma conexão IPsec encontrada na MIB'
+        priority: WARNING
+        description: |-
+          O SNMP respondeu, mas não devolveu nenhuma conexão IPsec.
+          Costuma ser ACL/visão de MIB restringindo a árvore 1.3.6.1.4.1.2604.5.1.6 ou todas as conexões removidas da configuração.
+          Em firewall que realmente não tem IPsec, desative esta trigger no host.
+        tags:
+        - tag: scope
+          value: availability
+        - tag: component
+          value: vpn
+    - uuid: 321f6c9f9dfa41c2bc3069eafbd8cd3d
+      name: 'Sophos: Disco utilizado'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.2.4.2.0]
+      key: sophos.disk.pused
+      delay: 5m
+      value_type: FLOAT
+      units: '%'
+      tags:
+      - tag: component
+        value: storage
+      triggers:
+      - uuid: c193d8a237ae45ae8b3e4ef458c22ae7
+        expression: last(/Sophos SFOS by SNMP/sophos.disk.pused)>{$SOPHOS.DISK.UTIL.MAX}
+        name: 'Sophos: Disco quase cheio (acima de {$SOPHOS.DISK.UTIL.MAX}%)'
+        opdata: 'Uso: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        tags:
+        - tag: scope
+          value: capacity
+    - uuid: 8b65f3656de74d3e988a8ad9f15a7c3b
+      name: 'Sophos: Memória total'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.2.5.1.0]
+      key: sophos.memory.total
+      delay: 1h
+      units: B
+      preprocessing:
+      - type: MULTIPLIER
+        parameters:
+        - '1048576'
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 1d
+      tags:
+      - tag: component
+        value: memory
+    - uuid: 21653475e7bd40aca5d62f9237c5213f
+      name: 'Sophos: Memória utilizada'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.2.5.2.0]
+      key: sophos.memory.pused
+      value_type: FLOAT
+      units: '%'
+      tags:
+      - tag: component
+        value: memory
+      triggers:
+      - uuid: 547b8c4a74624d36b3ce63aff87b2aea
+        expression: min(/Sophos SFOS by SNMP/sophos.memory.pused,5m)>{$SOPHOS.MEMORY.UTIL.MAX}
+        name: 'Sophos: Uso de memória alto (acima de {$SOPHOS.MEMORY.UTIL.MAX}% por 5m)'
+        opdata: 'Uso: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        tags:
+        - tag: scope
+          value: capacity
+        - tag: scope
+          value: performance
+    - uuid: 9ffe144e05f34490826bb9de65bf6371
+      name: 'Sophos: Modelo'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.1.2.0]
+      key: sophos.device.type
+      delay: 1h
+      value_type: CHAR
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 1d
+      tags:
+      - tag: component
+        value: system
+    - uuid: d1d15d3c54b842f68066867af68fa3d2
+      name: 'Sophos: Nome do equipamento'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.1.1.0]
+      key: sophos.device.name
+      delay: 1h
+      value_type: CHAR
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 1d
+      tags:
+      - tag: component
+        value: system
+    - uuid: 483d563252f0411bb06c6b09837e4614
+      name: 'Sophos: Swap utilizada'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.2.5.4.0]
+      key: sophos.swap.pused
+      value_type: FLOAT
+      units: '%'
+      tags:
+      - tag: component
+        value: memory
+      triggers:
+      - uuid: 6ace17d25cdf44f481c0ece4806a6408
+        expression: min(/Sophos SFOS by SNMP/sophos.swap.pused,10m)>{$SOPHOS.SWAP.UTIL.MAX}
+        name: 'Sophos: Uso de swap alto (acima de {$SOPHOS.SWAP.UTIL.MAX}% por 10m)'
+        opdata: 'Uso: {ITEM.LASTVALUE1}'
+        priority: WARNING
+        tags:
+        - tag: scope
+          value: capacity
+    - uuid: 731dc2d63e2d4ad3af3fea277b54fcbc
+      name: 'Sophos: Temperatura da CPU'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.9.2.0]
+      key: sophos.temp.cpu
+      delay: 2m
+      value_type: FLOAT
+      units: °C
+      preprocessing:
+      - type: MULTIPLIER
+        parameters:
+        - '0.1'
+      tags:
+      - tag: component
+        value: environment
+      triggers:
+      - uuid: 122f4e6b43d642b6be753092b4cb8f63
+        expression: min(/Sophos SFOS by SNMP/sophos.temp.cpu,5m)>{$SOPHOS.TEMP.CPU.WARN}
+        name: 'Sophos: Temperatura da CPU alta (acima de {$SOPHOS.TEMP.CPU.WARN}°C)'
+        opdata: 'Temperatura: {ITEM.LASTVALUE1}'
+        priority: WARNING
+        dependencies:
+        - name: 'Sophos: Temperatura da CPU crítica (acima de {$SOPHOS.TEMP.CPU.CRIT}°C)'
+          expression: min(/Sophos SFOS by SNMP/sophos.temp.cpu,5m)>{$SOPHOS.TEMP.CPU.CRIT}
+        tags:
+        - tag: scope
+          value: performance
+      - uuid: 73fe5dc9da354d35bf10d06062f88509
+        expression: min(/Sophos SFOS by SNMP/sophos.temp.cpu,5m)>{$SOPHOS.TEMP.CPU.CRIT}
+        name: 'Sophos: Temperatura da CPU crítica (acima de {$SOPHOS.TEMP.CPU.CRIT}°C)'
+        opdata: 'Temperatura: {ITEM.LASTVALUE1}'
+        priority: HIGH
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 683d01c45a5a48c0b9c38a071094aa2a
+      name: 'Sophos: Temperatura da NPU'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.9.1.0]
+      key: sophos.temp.npu
+      delay: 2m
+      value_type: FLOAT
+      units: °C
+      description: Disponível apenas em modelos com NPU (série XGS). Pode ficar "não suportado" em outros modelos.
+      preprocessing:
+      - type: MULTIPLIER
+        parameters:
+        - '0.1'
+      tags:
+      - tag: component
+        value: environment
+    - uuid: 7db43ff0fe144d86a946afb3a8af5c36
+      name: 'Sophos: Uso de CPU (média dos núcleos)'
+      type: SNMP_AGENT
+      snmp_oid: walk[1.3.6.1.2.1.25.3.3.1.2]
+      key: sophos.cpu.util
+      value_type: FLOAT
+      units: '%'
+      description: Média do hrProcessorLoad (HOST-RESOURCES-MIB) de todos os núcleos. A MIB do Sophos não expõe CPU.
+      preprocessing:
+      - type: JAVASCRIPT
+        parameters:
+        - |-
+          var v = value.split('\n').map(function (l) {
+              var m = l.match(/=\s*\w+:\s*(-?\d+(\.\d+)?)/);
+              return m ? parseFloat(m[1]) : null;
+          }).filter(function (x) { return x !== null; });
+          if (!v.length) { throw 'Sem dados de hrProcessorLoad'; }
+          var s = 0;
+          for (var i = 0; i < v.length; i++) { s += v[i]; }
+          return s / v.length;
+      tags:
+      - tag: component
+        value: cpu
+      triggers:
+      - uuid: 03b738616e58452a934d18e57caeb254
+        expression: min(/Sophos SFOS by SNMP/sophos.cpu.util,5m)>{$SOPHOS.CPU.UTIL.CRIT}
+        name: 'Sophos: Uso de CPU alto (acima de {$SOPHOS.CPU.UTIL.CRIT}% por 5m)'
+        opdata: 'Uso: {ITEM.LASTVALUE1}'
+        priority: AVERAGE
+        tags:
+        - tag: scope
+          value: performance
+    - uuid: 15b48f5736124147b2081e36b39d0c31
+      name: 'Sophos: Usuários ativos (captive portal)'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.2.6.0]
+      key: sophos.users.live
+      tags:
+      - tag: component
+        value: users
+    - uuid: 2f12350fe505459991711be66d2a9efb
+      name: 'Sophos: Versão das assinaturas IPS'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.1.6.0]
+      key: sophos.device.ips
+      delay: 6h
+      value_type: CHAR
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 1d
+      tags:
+      - tag: component
+        value: system
+    - uuid: 97460342c2a4493e80fa38d3a3323806
+      name: 'Sophos: Versão do Webcat'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.1.5.0]
+      key: sophos.device.webcat
+      delay: 6h
+      value_type: CHAR
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 1d
+      tags:
+      - tag: component
+        value: system
+    - uuid: 5bd7a39228544b0695efecf2c0a33ce8
+      name: 'Sophos: Versão do firmware'
+      type: SNMP_AGENT
+      snmp_oid: get[1.3.6.1.4.1.2604.5.1.1.3.0]
+      key: sophos.device.fwversion
+      delay: 1h
+      value_type: CHAR
+      preprocessing:
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 1d
+      tags:
+      - tag: component
+        value: system
+      triggers:
+      - uuid: 3c4276a14bcd409e875f1ba4d0fb3fd5
+        expression: change(/Sophos SFOS by SNMP/sophos.device.fwversion)=1
+        name: 'Sophos: Versão do firmware alterada'
+        opdata: 'Atual: {ITEM.LASTVALUE1}'
+        priority: INFO
+        description: O firmware do firewall foi atualizado ou alterado. Confirme se foi uma atualização planejada.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: 02fd466a30a642528b90f6c819802fea
+      name: 'Sophos: Walk das interfaces de túnel IPsec'
+      type: SNMP_AGENT
+      snmp_oid: walk[1.3.6.1.2.1.31.1.1.1.1,1.3.6.1.2.1.31.1.1.1.6,1.3.6.1.2.1.31.1.1.1.10,1.3.6.1.4.1.2604.5.1.6.1.1.1.1.2]
+      key: sophos.vpniface.walk
+      delay: 3m
+      history: '0'
+      value_type: TEXT
+      description: |-
+        Item mestre (sem histórico) da descoberta de tráfego por túnel IPsec.
+        Lê de uma vez a IF-MIB (nome e contadores de 64 bits das interfaces) e a coluna sfosIPSecVpnConnName, para que a descoberta consiga cruzar a interface xfrm<N> com o nome da conexão de índice N.
+      tags:
+      - tag: component
+        value: raw
+    - uuid: 0ae8e124ea114e989431c317848db34a
+      name: 'Sophos: Walk de PoE'
+      type: SNMP_AGENT
+      snmp_oid: walk[1.3.6.1.4.1.2604.5.1.9.5.1.2,1.3.6.1.4.1.2604.5.1.9.5.1.3,1.3.6.1.4.1.2604.5.1.9.5.1.4,1.3.6.1.4.1.2604.5.1.9.5.1.5,1.3.6.1.4.1.2604.5.1.9.5.1.6,1.3.6.1.4.1.2604.5.1.9.5.1.7]
+      key: sophos.poe.walk
+      delay: 5m
+      history: '0'
+      value_type: TEXT
+      description: |-
+        Item mestre (sem histórico) da descoberta de portas PoE.
+        sfosPoEConsumptionTable existe a partir da SFOS-FIREWALL-MIB v22 e só em appliance com PoE. Em equipamento sem PoE o item fica sem dado e nenhuma porta é descoberta, sem gerar alarme.
+      tags:
+      - tag: component
+        value: raw
+    - uuid: 08e4791c20ac4e6ca75868ab8645d636
+      name: 'Sophos: Walk de saúde (ventoinhas e fontes)'
+      type: SNMP_AGENT
+      snmp_oid: walk[1.3.6.1.4.1.2604.5.1.9.3.1.2,1.3.6.1.4.1.2604.5.1.9.4.1.2]
+      key: sophos.health.walk
+      delay: 5m
+      history: '0'
+      value_type: TEXT
+      description: Item mestre (sem histórico) usado pela descoberta de ventoinhas e fontes.
+      tags:
+      - tag: component
+        value: raw
+    - uuid: f7b5e2b8bb8842e1967c80726db67de9
+      name: 'Sophos: Walk dos clientes WiFi'
+      type: SNMP_AGENT
+      snmp_oid: walk[1.3.6.1.4.1.2604.5.1.7.2.1.2,1.3.6.1.4.1.2604.5.1.7.2.1.4,1.3.6.1.4.1.2604.5.1.7.2.1.5,1.3.6.1.4.1.2604.5.1.7.2.1.6,1.3.6.1.4.1.2604.5.1.7.2.1.7]
+      key: sophos.wifi.client.walk
+      delay: 5m
+      history: '0'
+      value_type: TEXT
+      description: 'Item mestre (sem histórico) da tabela de clientes WiFi (sfosDeviceAPClientTable). Usado só para agregados: total de clientes e clientes por SSID. Não gera item por cliente de propósito, porque cliente de WiFi é efêmero e isso encheria o banco de itens órfãos.'
+      tags:
+      - tag: component
+        value: raw
+    - uuid: 43f10db3ab23443b8aaa404d2b797dd2
+      name: 'Sophos: Walk dos pontos de acesso'
+      type: SNMP_AGENT
+      snmp_oid: walk[1.3.6.1.4.1.2604.5.1.7.1.1.1,1.3.6.1.4.1.2604.5.1.7.1.1.2,1.3.6.1.4.1.2604.5.1.7.1.1.3,1.3.6.1.4.1.2604.5.1.7.1.1.4,1.3.6.1.4.1.2604.5.1.7.1.1.5,1.3.6.1.4.1.2604.5.1.7.1.1.6]
+      key: sophos.wifi.ap.walk
+      delay: 5m
+      history: '0'
+      value_type: TEXT
+      description: Item mestre (sem histórico) da descoberta de pontos de acesso Sophos (sfosDeviceAPTable). Em firewall sem AP gerenciado não devolve nada e nenhum AP é descoberto.
+      tags:
+      - tag: component
+        value: raw
+    - uuid: 85d2c1692008404783eef1f4cd8787cb
+      name: 'Sophos: Walk dos túneis IPsec'
+      type: SNMP_AGENT
+      snmp_oid: walk[1.3.6.1.4.1.2604.5.1.6.1.1.1.1.2,1.3.6.1.4.1.2604.5.1.6.1.1.1.1.6,1.3.6.1.4.1.2604.5.1.6.1.1.1.1.8,1.3.6.1.4.1.2604.5.1.6.1.1.1.1.9,1.3.6.1.4.1.2604.5.1.6.1.1.1.1.10]
+      key: sophos.ipsec.walk
+      delay: 2m
+      history: '0'
+      value_type: TEXT
+      description: Item mestre (sem histórico) usado pela descoberta de túneis IPsec.
+      tags:
+      - tag: component
+        value: raw
+    - uuid: dca5b164e4f74b54968ba12e11e9ab78
+      name: 'WiFi: Clientes conectados'
+      type: DEPENDENT
+      key: sophos.wifi.clients.total
+      value_type: UNSIGNED
+      description: Total de clientes associados em todos os pontos de acesso e SSIDs.
+      preprocessing:
+      - type: SNMP_WALK_TO_JSON
+        parameters:
+        - ssid
+        - 1.3.6.1.4.1.2604.5.1.7.2.1.7
+        - '0'
+      - type: JAVASCRIPT
+        parameters:
+        - |
+          return JSON.parse(value).length;
+      master_item:
+        key: sophos.wifi.client.walk
+      tags:
+      - tag: component
+        value: wifi
+    - uuid: 5838b5eb8b024c61a26c260bc5fbff94
+      name: 'WiFi: Pontos de acesso desconectados'
+      type: DEPENDENT
+      key: sophos.wifi.ap.down
+      value_type: UNSIGNED
+      description: Quantidade de pontos de acesso em disconnected(1). Serve de número único para painel; o alarme por AP vem da trigger da descoberta.
+      preprocessing:
+      - type: SNMP_WALK_TO_JSON
+        parameters:
+        - status
+        - 1.3.6.1.4.1.2604.5.1.7.1.1.5
+        - '0'
+      - type: JAVASCRIPT
+        parameters:
+        - |
+          // Conta os pontos de acesso desconectados. APStatusType: connected(0),
+          // disconnected(1) - a enumeração é invertida em relação ao que se espera.
+          var linhas = JSON.parse(value);
+          var fora = 0;
+
+          for (var i = 0; i < linhas.length; i++) {
+              if (Number(linhas[i]['status']) === 1) {
+                  fora++;
+              }
+          }
+
+          return fora;
+      master_item:
+        key: sophos.wifi.ap.walk
+      tags:
+      - tag: component
+        value: wifi
+    - uuid: 4d71176d371f441aac8c9b3ed4f31533
+      name: 'WiFi: Pontos de acesso gerenciados'
+      type: DEPENDENT
+      key: sophos.wifi.ap.total
+      value_type: UNSIGNED
+      description: Quantidade de pontos de acesso que o firewall gerencia.
+      preprocessing:
+      - type: SNMP_WALK_TO_JSON
+        parameters:
+        - name
+        - 1.3.6.1.4.1.2604.5.1.7.1.1.1
+        - '0'
+      - type: JAVASCRIPT
+        parameters:
+        - |
+          return JSON.parse(value).length;
+      master_item:
+        key: sophos.wifi.ap.walk
+      tags:
+      - tag: component
+        value: wifi
+    discovery_rules:
+    - uuid: d245d5f6fd8649368e5ac5e4fea90369
+      name: Descoberta de SSID
+      type: DEPENDENT
+      key: sophos.wifi.ssid.discovery
+      description: |-
+        Descobre os SSIDs a partir da tabela de clientes, já sem repetição.
+        Um SSID só aparece enquanto tiver pelo menos um cliente associado: SSID configurado e vazio não é descoberto.
+      item_prototypes:
+      - uuid: c136b12b5f2b4af29bd42197ebbde7c1
+        name: 'SSID {#WIFI.SSID}: Clientes conectados'
+        type: DEPENDENT
+        key: sophos.wifi.ssid.clients["{#WIFI.SSID}"]
+        value_type: UNSIGNED
+        description: Clientes associados a este SSID, somando todos os pontos de acesso.
+        preprocessing:
+        - type: SNMP_WALK_TO_JSON
+          parameters:
+          - ssid
+          - 1.3.6.1.4.1.2604.5.1.7.2.1.7
+          - '0'
+        - type: JAVASCRIPT
+          parameters:
+          - |
+            // Clientes conectados neste SSID. Devolve 0 quando o SSID existe mas está
+            // vazio, em vez de deixar o item sem dado.
+            //
+            // O campo do passo anterior se chama 'ssid', e não {#WIFI.SSID}, de propósito:
+            // a macro de LLD é substituída em todo o parâmetro, então usar a macro como
+            // chave do JSON apagaria a chave e a comparação nunca casaria.
+            var alvo = "{#WIFI.SSID}";
+            var linhas = JSON.parse(value);
+            var total = 0;
+
+            for (var i = 0; i < linhas.length; i++) {
+                if (linhas[i]['ssid'] === alvo) {
+                    total++;
+                }
+            }
+
+            return total;
+        master_item:
+          key: sophos.wifi.client.walk
+        tags:
+        - tag: component
+          value: wifi
+        - tag: ssid
+          value: '{#WIFI.SSID}'
+      master_item:
+        key: sophos.wifi.client.walk
+      preprocessing:
+      - type: SNMP_WALK_TO_JSON
+        parameters:
+        - '{#WIFI.SSID}'
+        - 1.3.6.1.4.1.2604.5.1.7.2.1.7
+        - '0'
+      - type: JAVASCRIPT
+        parameters:
+        - |
+          // A tabela de clientes traz uma linha por cliente, então o mesmo SSID aparece
+          // repetido. A descoberta precisa de uma linha por SSID, senão dois clientes na
+          // mesma rede geram chave de item duplicada e a LLD falha.
+          var linhas = JSON.parse(value);
+          var vistos = {};
+          var saida = [];
+
+          for (var i = 0; i < linhas.length; i++) {
+              var ssid = linhas[i]['{#WIFI.SSID}'];
+
+              if (!ssid || vistos[ssid]) {
+                  continue;
+              }
+
+              vistos[ssid] = true;
+              saida.push({'{#WIFI.SSID}': ssid});
+          }
+
+          return JSON.stringify(saida);
+    - uuid: 598c5c2caff544359e8950c935eacc29
+      name: Descoberta de fontes de alimentação
+      type: DEPENDENT
+      key: sophos.psu.discovery
+      item_prototypes:
+      - uuid: d097bb7cf8b448458a13b978ad4c9478
+        name: 'Fonte {#SNMPINDEX}: Status'
+        type: DEPENDENT
+        key: sophos.psu.status[{#SNMPINDEX}]
+        valuemap:
+          name: Sophos power supply status
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.9.4.1.2.{#SNMPINDEX}
+          - '0'
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 6h
+        master_item:
+          key: sophos.health.walk
+        tags:
+        - tag: component
+          value: environment
+        trigger_prototypes:
+        - uuid: f7f472d247314215aebb9be96c6e4a4d
+          expression: last(/Sophos SFOS by SNMP/sophos.psu.status[{#SNMPINDEX}])=2
+          name: 'Sophos: Fonte de alimentação {#SNMPINDEX} em falha'
+          priority: HIGH
+          tags:
+          - tag: scope
+            value: availability
+      master_item:
+        key: sophos.health.walk
+      preprocessing:
+      - type: SNMP_WALK_TO_JSON
+        parameters:
+        - '{#PSU.STATUS}'
+        - 1.3.6.1.4.1.2604.5.1.9.4.1.2
+        - '0'
+    - uuid: 0ca2290568dd460994eae8826f607900
+      name: Descoberta de pontos de acesso WiFi
+      type: DEPENDENT
+      key: sophos.wifi.ap.discovery
+      filter:
+        evaltype: AND
+        conditions:
+        - macro: '{#AP.NAME}'
+          value: '{$SOPHOS.AP.NAME.MATCHES}'
+        - macro: '{#AP.NAME}'
+          value: '{$SOPHOS.AP.NAME.NOT_MATCHES}'
+          operator: NOT_MATCHES_REGEX
+      description: |-
+        Descobre os pontos de acesso Sophos gerenciados pelo firewall.
+        A tabela é indexada pelo nome do AP, então o índice SNMP vem como o nome em decimal pontilhado; o nome legível entra pela macro {#AP.NAME}.
+      item_prototypes:
+      - uuid: 2f0c39538a484506b93b20487a0161c4
+        name: 'AP {#AP.NAME}: Status'
+        type: DEPENDENT
+        key: sophos.wifi.ap.status[{#SNMPINDEX}]
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.7.1.1.5.{#SNMPINDEX}
+          - '0'
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 6h
+        master_item:
+          key: sophos.wifi.ap.walk
+        tags:
+        - tag: component
+          value: wifi
+        - tag: ap
+          value: '{#AP.NAME}'
+        value_type: UNSIGNED
+        valuemap:
+          name: Sophos AP status
+        description: 'sfosDeviceAPStatus. Atenção à enumeração: connected(0), disconnected(1).'
+      - uuid: b74e1411cf8143a681f5ba0e21b16480
+        name: 'AP {#AP.NAME}: Clientes conectados'
+        type: DEPENDENT
+        key: sophos.wifi.ap.clients[{#SNMPINDEX}]
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.7.1.1.6.{#SNMPINDEX}
+          - '0'
+        master_item:
+          key: sophos.wifi.ap.walk
+        tags:
+        - tag: component
+          value: wifi
+        - tag: ap
+          value: '{#AP.NAME}'
+        value_type: UNSIGNED
+        description: 'sfosDeviceAPClientCount: clientes associados a este ponto de acesso.'
+      - uuid: 2180c0626e71421187a9da4815df2477
+        name: 'AP {#AP.NAME}: Modelo'
+        type: DEPENDENT
+        key: sophos.wifi.ap.model[{#SNMPINDEX}]
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.7.1.1.2.{#SNMPINDEX}
+          - '0'
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 1d
+        master_item:
+          key: sophos.wifi.ap.walk
+        tags:
+        - tag: component
+          value: wifi
+        - tag: ap
+          value: '{#AP.NAME}'
+        value_type: CHAR
+        description: sfosDeviceAPModel.
+      - uuid: b2569595f293418d83bfbd79d07a0a68
+        name: 'AP {#AP.NAME}: Endereço IP'
+        type: DEPENDENT
+        key: sophos.wifi.ap.ip[{#SNMPINDEX}]
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.7.1.1.3.{#SNMPINDEX}
+          - '0'
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 1d
+        master_item:
+          key: sophos.wifi.ap.walk
+        tags:
+        - tag: component
+          value: wifi
+        - tag: ap
+          value: '{#AP.NAME}'
+        value_type: CHAR
+        description: sfosDeviceAPIPAddress.
+      - uuid: 4540aa9616f4458db2450c742d5f3d91
+        name: 'AP {#AP.NAME}: Endereço MAC'
+        type: DEPENDENT
+        key: sophos.wifi.ap.mac[{#SNMPINDEX}]
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.7.1.1.4.{#SNMPINDEX}
+          - '2'
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 1d
+        master_item:
+          key: sophos.wifi.ap.walk
+        tags:
+        - tag: component
+          value: wifi
+        - tag: ap
+          value: '{#AP.NAME}'
+        value_type: CHAR
+        description: sfosDeviceAPMacAddress. A MIB devolve em hexadecimal; o passo converte para o formato de MAC.
+      trigger_prototypes:
+      - uuid: 020f2e00dbee472d890fe4ff221046e9
+        expression: last(/Sophos SFOS by SNMP/sophos.wifi.ap.status[{#SNMPINDEX}])=1
+        name: 'Sophos: Ponto de acesso {#AP.NAME} desconectado'
+        priority: AVERAGE
+        description: O AP perdeu a conexão com o firewall. Verificar alimentação (PoE), cabo, porta do switch, VLAN e alcance do AP.
+        tags:
+        - tag: scope
+          value: availability
+        - tag: component
+          value: wifi
+      master_item:
+        key: sophos.wifi.ap.walk
+      preprocessing:
+      - type: SNMP_WALK_TO_JSON
+        parameters:
+        - '{#AP.NAME}'
+        - 1.3.6.1.4.1.2604.5.1.7.1.1.1
+        - '0'
+    - uuid: d3e85be5dfc14cd3aedc716dabbf9648
+      name: Descoberta de portas PoE
+      type: DEPENDENT
+      key: sophos.poe.discovery
+      description: |-
+        Descobre as portas PoE pelo rótulo (sfosPoEPortLabel).
+        Só devolve algo em appliance com PoE e firmware que exponha a MIB v22.
+      item_prototypes:
+      - uuid: ae256c8505cc4cc580a5f1718adb97fc
+        name: 'PoE {#POE.PORT}: Alimentação'
+        type: DEPENDENT
+        key: sophos.poe.status[{#SNMPINDEX}]
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.9.5.1.3.{#SNMPINDEX}
+          - '0'
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 12h
+        master_item:
+          key: sophos.poe.walk
+        tags:
+        - tag: component
+          value: poe
+        - tag: port
+          value: '{#POE.PORT}'
+        value_type: UNSIGNED
+        valuemap:
+          name: Sophos PoE power status
+        description: sfosPoEPowerEnabled.
+      - uuid: b67431b823614884836bed3867c503e3
+        name: 'PoE {#POE.PORT}: Limite de potência'
+        type: DEPENDENT
+        key: sophos.poe.limit[{#SNMPINDEX}]
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.9.5.1.4.{#SNMPINDEX}
+          - '0'
+        - type: MULTIPLIER
+          parameters:
+          - '0.001'
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 12h
+        master_item:
+          key: sophos.poe.walk
+        tags:
+        - tag: component
+          value: poe
+        - tag: port
+          value: '{#POE.PORT}'
+        value_type: FLOAT
+        units: W
+        description: sfosPoEPowerLimit. A MIB entrega em miliwatts; o item converte para watts.
+      - uuid: 118e0ede47144ea4bad2158a19c9eedc
+        name: 'PoE {#POE.PORT}: Consumo'
+        type: DEPENDENT
+        key: sophos.poe.usage[{#SNMPINDEX}]
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.9.5.1.5.{#SNMPINDEX}
+          - '0'
+        - type: MULTIPLIER
+          parameters:
+          - '0.001'
+        master_item:
+          key: sophos.poe.walk
+        tags:
+        - tag: component
+          value: poe
+        - tag: port
+          value: '{#POE.PORT}'
+        value_type: FLOAT
+        units: W
+        description: sfosPoEPowerUsage. A MIB entrega em miliwatts; o item converte para watts.
+      - uuid: 4b2d8e5320614394aadc54f7c8c9abbe
+        name: 'PoE {#POE.PORT}: Tensão'
+        type: DEPENDENT
+        key: sophos.poe.voltage[{#SNMPINDEX}]
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.9.5.1.6.{#SNMPINDEX}
+          - '0'
+        - type: MULTIPLIER
+          parameters:
+          - '0.001'
+        master_item:
+          key: sophos.poe.walk
+        tags:
+        - tag: component
+          value: poe
+        - tag: port
+          value: '{#POE.PORT}'
+        value_type: FLOAT
+        units: V
+        description: sfosPoEVoltage. A MIB entrega em milivolts; o item converte para volts.
+      - uuid: f722d632abf643e5a0f5d04243c600fd
+        name: 'PoE {#POE.PORT}: Corrente'
+        type: DEPENDENT
+        key: sophos.poe.current[{#SNMPINDEX}]
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.9.5.1.7.{#SNMPINDEX}
+          - '0'
+        - type: MULTIPLIER
+          parameters:
+          - '0.001'
+        master_item:
+          key: sophos.poe.walk
+        tags:
+        - tag: component
+          value: poe
+        - tag: port
+          value: '{#POE.PORT}'
+        value_type: FLOAT
+        units: A
+        description: sfosPoECurrent. A MIB entrega em miliamperes; o item converte para amperes.
+      trigger_prototypes:
+      - uuid: b1143128d5744384b8508375d1f0cf78
+        expression: last(/Sophos SFOS by SNMP/sophos.poe.limit[{#SNMPINDEX}])>0 and last(/Sophos SFOS by SNMP/sophos.poe.usage[{#SNMPINDEX}])>last(/Sophos SFOS by SNMP/sophos.poe.limit[{#SNMPINDEX}])*{$SOPHOS.POE.USAGE.MAX}/100
+        name: 'Sophos: PoE {#POE.PORT} acima de {$SOPHOS.POE.USAGE.MAX}% do limite'
+        priority: WARNING
+        description: A porta está perto do limite de potência configurado. Acima do limite o Sophos corta a alimentação do dispositivo.
+        tags:
+        - tag: scope
+          value: capacity
+        - tag: component
+          value: poe
+      master_item:
+        key: sophos.poe.walk
+      preprocessing:
+      - type: SNMP_WALK_TO_JSON
+        parameters:
+        - '{#POE.PORT}'
+        - 1.3.6.1.4.1.2604.5.1.9.5.1.2
+        - '0'
+    - uuid: b2ec894444944e1cbc9e69613595d897
+      name: Descoberta de tráfego por túnel IPsec
+      type: DEPENDENT
+      key: sophos.vpniface.discovery
+      description: |-
+        Descobre as interfaces de túnel (xfrm) e nomeia cada uma com o nome da conexão IPsec correspondente, o mesmo que aparece em Rede > Interfaces no firewall.
+        Interface de túnel sem conexão correspondente mantém o nome xfrm<N>.
+      item_prototypes:
+      - uuid: 55c1c36390884c7a8b839881cb6d8542
+        name: 'VPN {#VPN.NAME}: Download'
+        type: DEPENDENT
+        key: sophos.vpn.net.in[{#SNMPINDEX}]
+        value_type: FLOAT
+        units: bps
+        description: |-
+          Download na interface de túnel {#IFNAME} do Sophos.
+          O nome da VPN vem do de-para da macro {$SOPHOS.VPN.IFACE.MAP}, porque o SNMP do Sophos devolve só o nome de hardware (xfrm<N>).
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.2.1.31.1.1.1.6.{#SNMPINDEX}
+          - '0'
+        - type: CHANGE_PER_SECOND
+          parameters:
+          - ''
+        - type: MULTIPLIER
+          parameters:
+          - '8'
+        master_item:
+          key: sophos.vpniface.walk
+        tags:
+        - tag: component
+          value: network
+        - tag: component
+          value: vpn
+        - tag: vpn
+          value: '{#VPN.NAME}'
+      - uuid: d2e10a447f764fd18588f279c62651dd
+        name: 'VPN {#VPN.NAME}: Upload'
+        type: DEPENDENT
+        key: sophos.vpn.net.out[{#SNMPINDEX}]
+        value_type: FLOAT
+        units: bps
+        description: |-
+          Upload na interface de túnel {#IFNAME} do Sophos.
+          O nome da VPN vem do de-para da macro {$SOPHOS.VPN.IFACE.MAP}, porque o SNMP do Sophos devolve só o nome de hardware (xfrm<N>).
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.2.1.31.1.1.1.10.{#SNMPINDEX}
+          - '0'
+        - type: CHANGE_PER_SECOND
+          parameters:
+          - ''
+        - type: MULTIPLIER
+          parameters:
+          - '8'
+        master_item:
+          key: sophos.vpniface.walk
+        tags:
+        - tag: component
+          value: network
+        - tag: component
+          value: vpn
+        - tag: vpn
+          value: '{#VPN.NAME}'
+      master_item:
+        key: sophos.vpniface.walk
+      preprocessing:
+      - type: SNMP_WALK_TO_JSON
+        parameters:
+        - '{#IFNAME}'
+        - 1.3.6.1.2.1.31.1.1.1.1
+        - '0'
+        - '{#VPN.NAME}'
+        - 1.3.6.1.4.1.2604.5.1.6.1.1.1.1.2
+        - '0'
+      - type: JAVASCRIPT
+        parameters:
+        - |
+          // Descoberta do tráfego por túnel IPsec, com o nome real da VPN.
+          //
+          // O Sophos nomeia a interface de túnel como xfrm<N>, onde N é o
+          // sfosIPSecVpnConnId da conexão IPsec correspondente. Por isso o nome que
+          // aparece em Rede > Interfaces no firewall pode ser obtido sem nenhum de-para
+          // manual: basta ler as duas tabelas no mesmo walk e cruzar o número do xfrm
+          // com o índice da tabela de túneis.
+          //
+          // A entrada traz uma linha por índice SNMP. Linhas da tabela de conexões têm
+          // {#VPN.NAME}; linhas da IF-MIB têm {#IFNAME}. Os dois índices são
+          // independentes, então o cruzamento é feito pelo número dentro do nome xfrm,
+          // nunca pelo índice da linha.
+          var PADRAO_TUNEL = /^xfrm([0-9]+)$/;
+
+          var linhas = JSON.parse(value);
+          var nomes = {};
+          var saida = [];
+          var i;
+
+          for (i = 0; i < linhas.length; i++) {
+              if (linhas[i]['{#VPN.NAME}']) {
+                  nomes[linhas[i]['{#SNMPINDEX}']] = linhas[i]['{#VPN.NAME}'];
+              }
+          }
+
+          for (i = 0; i < linhas.length; i++) {
+              var iface = linhas[i]['{#IFNAME}'];
+
+              if (!iface) {
+                  continue;
+              }
+
+              var achou = PADRAO_TUNEL.exec(iface);
+
+              if (achou === null) {
+                  continue;
+              }
+
+              saida.push({
+                  '{#SNMPINDEX}': linhas[i]['{#SNMPINDEX}'],
+                  '{#IFNAME}': iface,
+                  '{#VPN.NAME}': nomes[achou[1]] ? nomes[achou[1]] : iface
+              });
+          }
+
+          return JSON.stringify(saida);
+    - uuid: c5f74cdf02f84dc3911f867de48e94a9
+      name: Descoberta de túneis IPsec
+      type: DEPENDENT
+      key: sophos.ipsec.discovery
+      filter:
+        evaltype: AND
+        conditions:
+        - macro: '{#VPN.NAME}'
+          value: '{$SOPHOS.VPN.NAME.MATCHES}'
+        - macro: '{#VPN.NAME}'
+          value: '{$SOPHOS.VPN.NAME.NOT_MATCHES}'
+          operator: NOT_MATCHES_REGEX
+      description: Descobre as conexões IPsec configuradas (sfosIPSecVpnTunnelTable).
+      item_prototypes:
+      - uuid: a44ac2068e29401789077736c569803b
+        name: 'VPN {#VPN.NAME}: Ativada'
+        type: DEPENDENT
+        key: sophos.ipsec.activated[{#SNMPINDEX}]
+        valuemap:
+          name: Sophos IPsec activation status
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.6.1.1.1.1.10.{#SNMPINDEX}
+          - '0'
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 6h
+        master_item:
+          key: sophos.ipsec.walk
+        tags:
+        - tag: component
+          value: vpn
+        - tag: vpn
+          value: '{#VPN.NAME}'
+      - uuid: a92eccfacf294548baa670328ba5132d
+        name: 'VPN {#VPN.NAME}: Status da conexão'
+        type: DEPENDENT
+        key: sophos.ipsec.status[{#SNMPINDEX}]
+        valuemap:
+          name: Sophos IPsec connection status
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.6.1.1.1.1.9.{#SNMPINDEX}
+          - '0'
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 6h
+        master_item:
+          key: sophos.ipsec.walk
+        tags:
+        - tag: component
+          value: vpn
+        - tag: vpn
+          value: '{#VPN.NAME}'
+      - uuid: 6321663c3b644d9fa886d44159849be0
+        name: 'VPN {#VPN.NAME}: Tipo de conexão'
+        type: DEPENDENT
+        key: sophos.ipsec.conntype[{#SNMPINDEX}]
+        value_type: UNSIGNED
+        valuemap:
+          name: Sophos IPsec connection type
+        description: 'sfosIPSecVpnConnType. Explica por que algumas conexões não têm interface de túnel: só as do tipo tunnel-interface aparecem como xfrm<N> em Rede > Interfaces e, portanto, só elas têm itens de tráfego.'
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.6.1.1.1.1.6.{#SNMPINDEX}
+          - '0'
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 12h
+        master_item:
+          key: sophos.ipsec.walk
+        tags:
+        - tag: component
+          value: vpn
+        - tag: vpn
+          value: '{#VPN.NAME}'
+      - uuid: eba4ee7d3fc949fcbcd0e7580ee22aa4
+        name: 'VPN {#VPN.NAME}: Túneis ativos'
+        type: DEPENDENT
+        key: sophos.ipsec.activetunnel[{#SNMPINDEX}]
+        value_type: UNSIGNED
+        description: |-
+          sfosIPSecVpnActiveTunnel.
+
+          O significado muda conforme o tipo da conexão:
+          - tunnel-interface (site a site baseado em rota): sempre 0. Não use.
+          - acesso remoto: número de túneis de cliente ativos, ou seja, quantos usuários estão conectados naquele perfil neste momento.
+
+          Na conexão de acesso remoto o 'Status da conexão' fica inativo mesmo com gente conectada, porque não existe um túnel permanente; é este item que mostra a atividade real.
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.6.1.1.1.1.8.{#SNMPINDEX}
+          - '0'
+        master_item:
+          key: sophos.ipsec.walk
+        tags:
+        - tag: component
+          value: vpn
+        - tag: vpn
+          value: '{#VPN.NAME}'
+      trigger_prototypes:
+      - uuid: ecf2993fcb334043aea52e58a431c589
+        expression: last(/Sophos SFOS by SNMP/sophos.ipsec.status[{#SNMPINDEX}])=0 and last(/Sophos SFOS by SNMP/sophos.ipsec.activated[{#SNMPINDEX}])=1
+        name: 'Sophos: Túnel IPsec {#VPN.NAME} inativo'
+        priority: HIGH
+        description: A conexão está ativada na configuração, mas o túnel está inativo.
+        tags:
+        - tag: scope
+          value: availability
+        - tag: vpn
+          value: '{#VPN.NAME}'
+      - uuid: ae710ac7934142e087142d542b0df8b2
+        expression: last(/Sophos SFOS by SNMP/sophos.ipsec.status[{#SNMPINDEX}])=2 and last(/Sophos SFOS by SNMP/sophos.ipsec.activated[{#SNMPINDEX}])=1
+        name: 'Sophos: Túnel IPsec {#VPN.NAME} parcialmente ativo'
+        priority: WARNING
+        description: Apenas parte das SAs do túnel está ativa.
+        tags:
+        - tag: scope
+          value: availability
+        - tag: vpn
+          value: '{#VPN.NAME}'
+      master_item:
+        key: sophos.ipsec.walk
+      preprocessing:
+      - type: SNMP_WALK_TO_JSON
+        parameters:
+        - '{#VPN.NAME}'
+        - 1.3.6.1.4.1.2604.5.1.6.1.1.1.1.2
+        - '0'
+    - uuid: c62283bab2f0472ab6f13fad593639de
+      name: Descoberta de ventoinhas
+      type: DEPENDENT
+      key: sophos.fan.discovery
+      item_prototypes:
+      - uuid: f337f6d4373c44c382ef091de0eeae9d
+        name: 'Ventoinha {#SNMPINDEX}: Velocidade'
+        type: DEPENDENT
+        key: sophos.fan.speed[{#SNMPINDEX}]
+        units: rpm
+        preprocessing:
+        - type: SNMP_WALK_VALUE
+          parameters:
+          - 1.3.6.1.4.1.2604.5.1.9.3.1.2.{#SNMPINDEX}
+          - '0'
+        master_item:
+          key: sophos.health.walk
+        tags:
+        - tag: component
+          value: environment
+        trigger_prototypes:
+        - uuid: 3b4a774e4a0748369f0e993008a45684
+          expression: max(/Sophos SFOS by SNMP/sophos.fan.speed[{#SNMPINDEX}],5m)=0
+          name: 'Sophos: Ventoinha {#SNMPINDEX} parada'
+          priority: AVERAGE
+          tags:
+          - tag: scope
+            value: availability
+      master_item:
+        key: sophos.health.walk
+      preprocessing:
+      - type: SNMP_WALK_TO_JSON
+        parameters:
+        - '{#FAN.SPEED}'
+        - 1.3.6.1.4.1.2604.5.1.9.3.1.2
+        - '0'
+    tags:
+    - tag: class
+      value: network
+    - tag: target
+      value: sophos
+    macros:
+    - macro: '{$SOPHOS.AP.NAME.MATCHES}'
+      value: .*
+      description: Pontos de acesso a descobrir (expressão regular).
+    - macro: '{$SOPHOS.AP.NAME.NOT_MATCHES}'
+      value: CHANGE_IF_NEEDED
+      description: Pontos de acesso a ignorar (expressão regular). O valor padrão não casa com nada.
+    - macro: '{$SOPHOS.CPU.UTIL.CRIT}'
+      value: '90'
+      description: Limite de uso de CPU (%).
+    - macro: '{$SOPHOS.DISK.UTIL.MAX}'
+      value: '90'
+      description: Limite de uso de disco (%).
+    - macro: '{$SOPHOS.IPSEC.NODATA}'
+      value: 10m
+      description: Janela sem coleta da MIB de VPN IPsec antes de alertar. O item mestre roda a cada 2m, então 10m equivalem a 5 leituras perdidas.
+    - macro: '{$SOPHOS.LICENSE.EXPIRE.WARN}'
+      value: '30'
+      description: Dias de antecedência para avisar o vencimento de licença.
+    - macro: '{$SOPHOS.LICENSE.MONITOR:"mail"}'
+      value: '0'
+      description: Email Protection não monitorada por padrão.
+    - macro: '{$SOPHOS.LICENSE.MONITOR:"webserver"}'
+      value: '0'
+      description: Web Server Protection não monitorada por padrão.
+    - macro: '{$SOPHOS.LICENSE.MONITOR}'
+      value: '1'
+      description: Monitorar licenças (1) ou não (0). Use contexto para uma licença específica.
+    - macro: '{$SOPHOS.MEMORY.UTIL.MAX}'
+      value: '90'
+      description: Limite de uso de memória (%).
+    - macro: '{$SOPHOS.POE.USAGE.MAX}'
+      value: '90'
+      description: Percentual do limite de potência da porta PoE a partir do qual alertar.
+    - macro: '{$SOPHOS.SERVICE.MONITOR:"as"}'
+      value: '0'
+      description: Antispam depende da licença de e-mail.
+    - macro: '{$SOPHOS.SERVICE.MONITOR:"ftp"}'
+      value: '0'
+    - macro: '{$SOPHOS.SERVICE.MONITOR:"ha"}'
+      value: '0'
+      description: Serviço de HA só existe com cluster configurado.
+    - macro: '{$SOPHOS.SERVICE.MONITOR:"imap4"}'
+      value: '0'
+    - macro: '{$SOPHOS.SERVICE.MONITOR:"pop3"}'
+      value: '0'
+      description: Serviços de e-mail não usados por padrão.
+    - macro: '{$SOPHOS.SERVICE.MONITOR:"smtp"}'
+      value: '0'
+    - macro: '{$SOPHOS.SERVICE.MONITOR}'
+      value: '1'
+      description: Alarmar serviço parado (1) ou não (0). Use contexto para um serviço específico.
+    - macro: '{$SOPHOS.SWAP.UTIL.MAX}'
+      value: '80'
+      description: Limite de uso de swap (%).
+    - macro: '{$SOPHOS.TEMP.CPU.CRIT}'
+      value: '85'
+      description: Temperatura da CPU crítica (°C).
+    - macro: '{$SOPHOS.TEMP.CPU.WARN}'
+      value: '75'
+      description: Temperatura da CPU para aviso (°C).
+    - macro: '{$SOPHOS.VPN.NAME.MATCHES}'
+      value: .*
+      description: Túneis IPsec a descobrir (regex).
+    - macro: '{$SOPHOS.VPN.NAME.NOT_MATCHES}'
+      value: CHANGE_IF_NEEDED
+      description: Túneis IPsec a ignorar (regex).
+    valuemaps:
+    - uuid: bf1be2b5e27043dc87a965a608b9ccd6
+      name: Sophos AP status
+      mappings:
+      - value: '0'
+        newvalue: connected
+      - value: '1'
+        newvalue: disconnected
+    - uuid: 3d0e17b93f4a4fef83ccfc23cc6685a2
+      name: Sophos HA state
+      mappings:
+      - value: '0'
+        newvalue: notapplicable
+      - value: '1'
+        newvalue: auxiliary
+      - value: '2'
+        newvalue: standAlone
+      - value: '3'
+        newvalue: primary
+      - value: '4'
+        newvalue: faulty
+      - value: '5'
+        newvalue: ready
+    - uuid: d1b8200f9e144a96a9d45225958ff2e2
+      name: Sophos HA status
+      mappings:
+      - value: '0'
+        newvalue: disabled
+      - value: '1'
+        newvalue: enabled
+    - uuid: 69e864863cd14e679a4ffcf55309661f
+      name: Sophos IPsec activation status
+      mappings:
+      - value: '0'
+        newvalue: inactive
+      - value: '1'
+        newvalue: active
+    - uuid: 6f18bc6505ce4ea98edcefff24457ed8
+      name: Sophos IPsec connection status
+      mappings:
+      - value: '0'
+        newvalue: inactive
+      - value: '1'
+        newvalue: active
+      - value: '2'
+        newvalue: partially-active
+    - uuid: 72123fdd45874f83b69940cb33bd615a
+      name: Sophos IPsec connection type
+      mappings:
+      - value: '0'
+        newvalue: remote-access
+      - value: '1'
+        newvalue: host-to-host
+      - value: '2'
+        newvalue: site-to-site
+      - value: '3'
+        newvalue: tunnel-interface
+    - uuid: 4d97d82c78794249a94f29f86bf47706
+      name: Sophos PoE power status
+      mappings:
+      - value: '1'
+        newvalue: enabled
+      - value: '2'
+        newvalue: disabled
+    - uuid: 55c93b682bb846da86a6b8489bd54e7b
+      name: Sophos power supply status
+      mappings:
+      - value: '1'
+        newvalue: up
+      - value: '2'
+        newvalue: down
+    - uuid: 550a40fdb8604dd2b0d851214276329a
+      name: Sophos service state
+      mappings:
+      - value: '0'
+        newvalue: untouched
+      - value: '1'
+        newvalue: stopped
+      - value: '2'
+        newvalue: initializing
+      - value: '3'
+        newvalue: running
+      - value: '4'
+        newvalue: exiting
+      - value: '5'
+        newvalue: dead
+      - value: '6'
+        newvalue: frozen
+      - value: '7'
+        newvalue: unregistered
+    - uuid: ee517065d320454d8810b0e8654823d5
+      name: Sophos subscription status
+      mappings:
+      - value: '0'
+        newvalue: none
+      - value: '1'
+        newvalue: evaluating
+      - value: '2'
+        newvalue: notsubscribed
+      - value: '3'
+        newvalue: subscribed
+      - value: '4'
+        newvalue: expired
+      - value: '5'
+        newvalue: deactivated
+  triggers:
+  - uuid: 22832c005b2b4f44aa74bf42d240ddf3
+    expression: last(/Sophos SFOS by SNMP/sophos.license.days[central])<={$SOPHOS.LICENSE.EXPIRE.WARN} and last(/Sophos SFOS by SNMP/sophos.license.days[central])>=0 and last(/Sophos SFOS by SNMP/sophos.license.status[central])=3 and {$SOPHOS.LICENSE.MONITOR:"central"}=1
+    name: 'Sophos: Licença Central Orchestration expira em menos de {$SOPHOS.LICENSE.EXPIRE.WARN} dias'
+    opdata: 'Dias restantes: {ITEM.LASTVALUE1}'
+    priority: WARNING
+    tags:
+    - tag: scope
+      value: notice
+  - uuid: cdcc419efb854a96b8b3366d3684571f
+    expression: last(/Sophos SFOS by SNMP/sophos.license.days[mail])<={$SOPHOS.LICENSE.EXPIRE.WARN} and last(/Sophos SFOS by SNMP/sophos.license.days[mail])>=0 and last(/Sophos SFOS by SNMP/sophos.license.status[mail])=3 and {$SOPHOS.LICENSE.MONITOR:"mail"}=1
+    name: 'Sophos: Licença Email Protection expira em menos de {$SOPHOS.LICENSE.EXPIRE.WARN} dias'
+    opdata: 'Dias restantes: {ITEM.LASTVALUE1}'
+    priority: WARNING
+    tags:
+    - tag: scope
+      value: notice
+  - uuid: 0595a03fed724990bcc9957c63ad4b04
+    expression: last(/Sophos SFOS by SNMP/sophos.license.days[supportplus])<={$SOPHOS.LICENSE.EXPIRE.WARN} and last(/Sophos SFOS by SNMP/sophos.license.days[supportplus])>=0 and last(/Sophos SFOS by SNMP/sophos.license.status[supportplus])=3 and {$SOPHOS.LICENSE.MONITOR:"supportplus"}=1
+    name: 'Sophos: Licença Enhanced Plus Support expira em menos de {$SOPHOS.LICENSE.EXPIRE.WARN} dias'
+    opdata: 'Dias restantes: {ITEM.LASTVALUE1}'
+    priority: WARNING
+    tags:
+    - tag: scope
+      value: notice
+  - uuid: 2ac8199718ff45328e194884cf4177e6
+    expression: last(/Sophos SFOS by SNMP/sophos.license.days[support])<={$SOPHOS.LICENSE.EXPIRE.WARN} and last(/Sophos SFOS by SNMP/sophos.license.days[support])>=0 and last(/Sophos SFOS by SNMP/sophos.license.status[support])=3 and {$SOPHOS.LICENSE.MONITOR:"support"}=1
+    name: 'Sophos: Licença Enhanced Support expira em menos de {$SOPHOS.LICENSE.EXPIRE.WARN} dias'
+    opdata: 'Dias restantes: {ITEM.LASTVALUE1}'
+    priority: WARNING
+    tags:
+    - tag: scope
+      value: notice
+  - uuid: 26155dca66ee4c118ca07b8cee9588ee
+    expression: last(/Sophos SFOS by SNMP/sophos.license.days[base])<={$SOPHOS.LICENSE.EXPIRE.WARN} and last(/Sophos SFOS by SNMP/sophos.license.days[base])>=0 and last(/Sophos SFOS by SNMP/sophos.license.status[base])=3 and {$SOPHOS.LICENSE.MONITOR:"base"}=1
+    name: 'Sophos: Licença Firewall base expira em menos de {$SOPHOS.LICENSE.EXPIRE.WARN} dias'
+    opdata: 'Dias restantes: {ITEM.LASTVALUE1}'
+    priority: WARNING
+    tags:
+    - tag: scope
+      value: notice
+  - uuid: 0626cabbac794100b3b7c8891629eda8
+    expression: last(/Sophos SFOS by SNMP/sophos.license.days[network])<={$SOPHOS.LICENSE.EXPIRE.WARN} and last(/Sophos SFOS by SNMP/sophos.license.days[network])>=0 and last(/Sophos SFOS by SNMP/sophos.license.status[network])=3 and {$SOPHOS.LICENSE.MONITOR:"network"}=1
+    name: 'Sophos: Licença Network Protection expira em menos de {$SOPHOS.LICENSE.EXPIRE.WARN} dias'
+    opdata: 'Dias restantes: {ITEM.LASTVALUE1}'
+    priority: WARNING
+    tags:
+    - tag: scope
+      value: notice
+  - uuid: ba6708c5df7c40909f6f8f2d92a638b8
+    expression: last(/Sophos SFOS by SNMP/sophos.license.days[web])<={$SOPHOS.LICENSE.EXPIRE.WARN} and last(/Sophos SFOS by SNMP/sophos.license.days[web])>=0 and last(/Sophos SFOS by SNMP/sophos.license.status[web])=3 and {$SOPHOS.LICENSE.MONITOR:"web"}=1
+    name: 'Sophos: Licença Web Protection expira em menos de {$SOPHOS.LICENSE.EXPIRE.WARN} dias'
+    opdata: 'Dias restantes: {ITEM.LASTVALUE1}'
+    priority: WARNING
+    tags:
+    - tag: scope
+      value: notice
+  - uuid: bbf273d59ed248dbb26cc797d67eec18
+    expression: last(/Sophos SFOS by SNMP/sophos.license.days[webserver])<={$SOPHOS.LICENSE.EXPIRE.WARN} and last(/Sophos SFOS by SNMP/sophos.license.days[webserver])>=0 and last(/Sophos SFOS by SNMP/sophos.license.status[webserver])=3 and {$SOPHOS.LICENSE.MONITOR:"webserver"}=1
+    name: 'Sophos: Licença Web Server Protection expira em menos de {$SOPHOS.LICENSE.EXPIRE.WARN} dias'
+    opdata: 'Dias restantes: {ITEM.LASTVALUE1}'
+    priority: WARNING
+    tags:
+    - tag: scope
+      value: notice
+  - uuid: 2e824f439b644e9abc431c37867ffadf
+    expression: last(/Sophos SFOS by SNMP/sophos.license.days[sandstorm])<={$SOPHOS.LICENSE.EXPIRE.WARN} and last(/Sophos SFOS by SNMP/sophos.license.days[sandstorm])>=0 and last(/Sophos SFOS by SNMP/sophos.license.status[sandstorm])=3 and {$SOPHOS.LICENSE.MONITOR:"sandstorm"}=1
+    name: 'Sophos: Licença Zero-day / Sandstorm expira em menos de {$SOPHOS.LICENSE.EXPIRE.WARN} dias'
+    opdata: 'Dias restantes: {ITEM.LASTVALUE1}'
+    priority: WARNING
+    tags:
+    - tag: scope
+      value: notice
+  - uuid: d156e0bc10b14cef808e46911f0fcfac
+    expression: last(/Sophos SFOS by SNMP/sophos.ha.peer.state)=4 and last(/Sophos SFOS by SNMP/sophos.ha.status)=1
+    name: 'Sophos HA: Equipamento par em falha'
+    priority: HIGH
+    tags:
+    - tag: scope
+      value: availability
+  - uuid: 73b02938e7cd4105bf010e57c878e9b2
+    expression: change(/Sophos SFOS by SNMP/sophos.ha.state)<>0 and last(/Sophos SFOS by SNMP/sophos.ha.status)=1
+    name: 'Sophos HA: Mudança de estado do cluster'
+    opdata: 'Estado: {ITEM.LASTVALUE1}'
+    priority: AVERAGE
+    description: O estado de HA deste equipamento mudou (possível failover).
+    tags:
+    - tag: scope
+      value: availability
